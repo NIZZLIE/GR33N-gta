@@ -15,6 +15,11 @@ jobs:
       - name: Build PS3 SDK image
         run: |
           git clone https://github.com/ps3dev/ps3dev-docker.git /tmp/ps3dev-docker
+
+          sed -i '/git clone.*ps3toolchain/i\  apt-get update \&\& apt-get install -y cmake pkg-config python3 autoconf automake libtool \&\& \\' /tmp/ps3dev-docker/Dockerfile
+
+          cat /tmp/ps3dev-docker/Dockerfile
+
           docker build -t ps3dev-local /tmp/ps3dev-docker
 
       - name: Compile GR33N
@@ -29,6 +34,7 @@ jobs:
               export PSL1GHT=$PS3DEV
               export PATH=$PATH:$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin
               ppu-gcc --version
+              cmake --version
               sh deps/build-mbedtls.sh
               sh deps/build-libsrtp.sh
               sh deps/build-usrsctp.sh
