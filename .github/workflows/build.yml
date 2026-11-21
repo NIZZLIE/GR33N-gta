@@ -6,38 +6,37 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ps3dev/ps3dev:latest
-
-    env:
-      PS3DEV: /usr/local/ps3dev
-      PSL1GHT: /usr/local/ps3dev
+    timeout-minutes: 360
 
     steps:
-      - name: Checkout source
+      - name: Checkout GR33N
         uses: actions/checkout@v4
 
-      - name: Setup environment
+      - name: Build PS3 SDK image
         run: |
-          echo "$PS3DEV/bin" >> "$GITHUB_PATH"
-          echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
-          echo "$PS3DEV/spu/bin" >> "$GITHUB_PATH"
+          git clone https://github.com/ps3dev/ps3dev-docker.git /tmp/ps3dev-docker
+          docker build -t ps3dev-local /tmp/ps3dev-docker
 
-      - name: Check compiler
-        run: ppu-gcc --version
-
-      - name: Build dependencies
+      - name: Compile GR33N
         run: |
-          sh deps/build-mbedtls.sh
-          sh deps/build-libsrtp.sh
-          sh deps/build-usrsctp.sh
-          sh deps/build-libpeer.sh
-          sh deps/build-opus.sh
-
-      - name: Build GR33N
-        run: |
-          make
-          make pkg
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/build/gr33n" \
+            -w /build/gr33n \
+            --entrypoint /bin/bash \
+            ps3dev-local -c '
+              set -e
+              export PS3DEV=/usr/local/ps3dev
+              export PSL1GHT=$PS3DEV
+              export PATH=$PATH:$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin
+              ppu-gcc --version
+              sh deps/build-mbedtls.sh
+              sh deps/build-libsrtp.sh
+              sh deps/build-usrsctp.sh
+              sh deps/build-libpeer.sh
+              sh deps/build-opus.sh
+              make
+              make pkg
+            '
 
       - name: Upload PKG
         uses: actions/upload-artifact@v4
