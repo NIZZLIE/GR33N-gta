@@ -26,7 +26,7 @@
 /* Nivel del bitstream x10. 31 = H.264 nivel 3.1, que cubre 720p30.
  * Para 720p60 haria falta 32 o 40. Determina la memoria que reserva el
  * decodificador, asi que no conviene pasarse por gusto. */
-#define DEC_PROFILE_LEVEL   31
+#define DEC_PROFILE_LEVEL   42
 
 #define DEC_MAX_AUS         4096
 #define DEC_PIC_BYTES       (DEC_MAX_W * DEC_MAX_H * 4)
@@ -166,6 +166,7 @@ static u64 out_seq = 0;
 
 static volatile int pic_ready = 0;   /* lo pone el callback de cellVdec */
 static volatile int seq_error = 0;
+static volatile u32 audone_events = 0;
 
 /* Marcas de tiempo de envio, en orden. El clip va sin frames B
  * (-bf 0 al codificarlo), asi que el orden de salida es el de entrada y
@@ -378,6 +379,8 @@ static u32 dec_callback(u32 h, u32 msgtype, u32 msgdata, u32 arg)
 		seq_error = 1;
 		break;
 	case VDEC_CALLBACK_AUDONE:
+		__sync_fetch_and_add(&audone_events, 1);
+		break;
 	case VDEC_CALLBACK_SEQDONE:
 	default:
 		break;
@@ -461,11 +464,8 @@ static int consume_picture(void)
 	 * quedan corridas una posicion. */
 	if (pic->status == VDEC_PICTURE_SKIPPED) {
 		LOCK(); slots[sl].busy = 0; UNLOCK();
-		if (inflight) {
+		if (sub_head != sub_tail)
 			sub_tail = (sub_tail + 1) % DEC_INFLIGHT;
-			inflight--;
-			live_libera();
-		}
 		return 1;
 	}
 
@@ -506,11 +506,9 @@ static int consume_picture(void)
 	now = now_us();
 
 	t_submit = 0;
-	if (inflight) {
+	if (sub_head != sub_tail) {
 		t_submit = submit_t[sub_tail];
 		sub_tail = (sub_tail + 1) % DEC_INFLIGHT;
-		live_libera();
-		inflight--;
 	}
 
 	LOCK();
@@ -607,6 +605,7 @@ static void do_start(void)
 		live_w = live_r = live_f = 0;
 		live_q = live_v = 0;
 		live_drops = 0;
+		__sync_lock_test_and_set(&audone_events, 0);
 		au_stream = NULL;
 		au_stream_size = 0;
 		dlog("0/4 EN VIVO, %u ranuras de %u KB - con %u SPU%s",
@@ -709,6 +708,7 @@ static void dec_thread(void *arg)
 			atascos = 0;
 			t_ultimo_atasco = 0;
 			quiere_clave = 0;
+			__sync_lock_test_and_set(&audone_events, 0);
 			continue;
 		}
 
@@ -728,6 +728,20 @@ static void dec_thread(void *arg)
 		UNLOCK();
 
 		if (!state_ok) { usleep(1000); continue; }
+
+		/* AUDONE oznacza, ze cellVdec skonczyl czytac dana AU.
+		 * PICOUT moze nie nadejsc dla SPS/PPS/SEI, blokujac kolejke. */
+		{
+			u32 done = __sync_lock_test_and_set(&audone_events, 0);
+			while (done > 0) {
+				done--;
+				if (inflight > 0) {
+					inflight--;
+					live_libera();
+					t_last_progress = now_us();
+				}
+			}
+		}
 
 		/* En vivo, si todavia no ha llegado nada de la red no hay nada
 		 * que enviar. Se cosecha igual --puede haber imagenes listas de
@@ -793,6 +807,7 @@ static void dec_thread(void *arg)
 				sub_head = sub_tail = 0;
 				last_out_us = 0;
 				pic_ready = 0;
+				__sync_lock_test_and_set(&audone_events, 0);
 
 				/* En vivo, lo que hubiera encolado ya no vale: son
 				 * unidades de mitad de un GOP y el descodificador nuevo
