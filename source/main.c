@@ -1217,12 +1217,17 @@ int main(int argc, const char *argv[])
 		u64 t;
 		int fresh = 0, remote = 0, h264 = 0, tls = 0, auth = 0;
 
+		if (tick >= 1320 && tick <= 1440 && tick % 10u == 0u)
+			linkLog("[diag:menu] tick=%u loop-start", (unsigned)tick);
 		sysUtilCheckCallback();
 
 		inputPoll();
 		pad = inputPad();
 
 		linkUpdate();
+		if (tick >= 1320 && tick <= 1440 && tick % 10u == 0u)
+			linkLog("[diag:menu] tick=%u link-updated", (unsigned)tick);
+
 
 		{
 			u32 quit_mask = uiQuitMask();
@@ -1271,6 +1276,9 @@ int main(int argc, const char *argv[])
 		}
 
 		uiUpdate(pad);
+		if (tick >= 1320 && tick <= 1440 && tick % 10u == 0u)
+			linkLog("[diag:menu] tick=%u ui-updated", (unsigned)tick);
+
 
 		/* Y si ha hecho la combinacion, se suelta la maquina. La sesion
 		 * se para AQUI y no dentro de la interfaz: ui.c no sabe de
@@ -1403,6 +1411,9 @@ int main(int argc, const char *argv[])
 
 		tb0 = __gettime();
 		s = videoSurface();          /* espera a que el RSX suelte la textura */
+		if (tick >= 1320 && tick <= 1440 && tick % 10u == 0u)
+			linkLog("[diag:menu] tick=%u surface-ready", (unsigned)tick);
+
 		ph.surf += __gettime() - tb0;
 
 		/* La segunda toma del banco de pruebas, esta vez con la consola en
@@ -1537,8 +1548,13 @@ int main(int argc, const char *argv[])
 			ph.hud += __gettime() - tb0;
 		}
 
+		if (tick >= 1320 && tick <= 1440 && tick % 10u == 0u)
+			linkLog("[diag:menu] tick=%u ui-drawn", (unsigned)tick);
+
 		tb0 = __gettime();
 		videoPresent();
+		if (tick >= 1320 && tick <= 1440 && tick % 10u == 0u)
+			linkLog("[diag:menu] tick=%u presented", (unsigned)tick);
 		ph.flip += __gettime() - tb0;
 		phase_tick(&ph);
 
