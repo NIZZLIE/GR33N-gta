@@ -94,7 +94,7 @@
  * solo se REGISTRA y se compara con este: si algun dia sale distinto de
  * "ES", lo veremos en el log antes de que nadie se pregunte por que le
  * faltan juegos. Medir primero, cambiar despues. */
-#define CAT_MARKET      "PL"
+#define CAT_MARKET      "ES"
 
 /* Solo el respaldo: el idioma de verdad sale de xclocActual(). */
 #define CAT_LANGUAGE    "pl-PL"
