@@ -12,15 +12,42 @@ jobs:
       - name: Checkout GR33N
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build PS3 SDK image
         run: |
-          git clone https://github.com/ps3dev/ps3dev-docker.git /tmp/ps3dev-docker
+          set -e
 
-          sed -i '/git clone.*ps3toolchain/i\  apt-get update \&\& apt-get install -y cmake pkg-config python3 autoconf automake libtool \&\& \\' /tmp/ps3dev-docker/Dockerfile
+          git clone --depth 1 https://github.com/ps3dev/ps3dev-docker.git /tmp/ps3dev-docker
 
+          # Dodatkowe zależności potrzebne przez GR33N.
+          sed -i '/git clone.*ps3toolchain/i\  apt-get update \&\& apt-get install -y cmake pkg-config python3 autoconf automake libtool wget ca-certificates \&\& \\' \
+            /tmp/ps3dev-docker/Dockerfile
+
+          # PSL1GHT używa NVIDIA Cg Toolkit do kompilacji shaderów .vcg/.fcg.
+          cat >> /tmp/ps3dev-docker/Dockerfile <<'EOF'
+
+          # NVIDIA Cg Toolkit 3.1
+          RUN wget -q \
+              https://developer.download.nvidia.com/cg/Cg_3.1/Cg-3.1_April2012_x86_64.tgz \
+              -O /tmp/cg.tgz \
+           && echo "e8ff01e6cc38d1b3fd56a083f5860737dbd2f319a39037528fb1a74a89ae9878  /tmp/cg.tgz" | sha256sum -c - \
+           && tar -xzf /tmp/cg.tgz -C / \
+           && rm -f /tmp/cg.tgz \
+           && echo "/usr/lib64" > /etc/ld.so.conf.d/nvidia-cg.conf \
+           && ldconfig
+          EOF
+
+          echo "===== Dockerfile ====="
           cat /tmp/ps3dev-docker/Dockerfile
 
-          docker build -t ps3dev-local /tmp/ps3dev-docker
+          docker buildx build \
+            --load \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            -t ps3dev-local \
+            /tmp/ps3dev-docker
 
       - name: Compile GR33N
         run: |
@@ -30,19 +57,44 @@ jobs:
             --entrypoint /bin/bash \
             ps3dev-local -c '
               set -e
+
               export PS3DEV=/usr/local/ps3dev
               export PSL1GHT=$PS3DEV
               export PATH=$PATH:$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin
+              export LD_LIBRARY_PATH=/usr/lib64:/usr/lib:${LD_LIBRARY_PATH:-}
+
+              echo "===== PS3 toolchain ====="
               ppu-gcc --version
+
+              echo "===== CMake ====="
               cmake --version
+
+              echo "===== NVIDIA Cg ====="
+              ls -la /usr/lib64/libCg.so*
+              ldconfig -p | grep -i libCg || true
+
+              echo "===== Dependencies ====="
               sh deps/build-mbedtls.sh
               sh deps/build-libsrtp.sh
               sh deps/build-usrsctp.sh
               sh deps/build-libpeer.sh
               sh deps/build-opus.sh
+
+              echo "===== GR33N ====="
               make
+
+              echo "===== PKG ====="
               make pkg
             '
+
+      - name: Show generated files
+        if: always()
+        run: |
+          echo "===== Generated PKG files ====="
+          find . -type f -name "*.pkg" -print || true
+
+          echo "===== Generated EBOOT files ====="
+          find . -type f -name "EBOOT.BIN" -print || true
 
       - name: Upload PKG
         uses: actions/upload-artifact@v4
